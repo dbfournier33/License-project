@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 
 from .billing import invoice_prices
-from .skus import BASE_SUITES, DESKTOP_SUITES
+from .skus import BASE_SUITES, DESKTOP_SUITES, FALLBACK_NAMES
 
 INACTIVE_BUCKETS = (90, 60, 30)
 NEW_USER_GRACE_DAYS = 30
@@ -84,6 +84,9 @@ def analyze(data, prices, names, now=None):
 
     def price(part):
         return price_info(part)[0]
+
+    def display_name(part):
+        return names.get(part) or FALLBACK_NAMES.get(part) or part
 
     def user_skus(user):
         return [sku_part.get(l["skuId"], l["skuId"]) for l in user.get("assignedLicenses") or []]
@@ -180,6 +183,14 @@ def analyze(data, prices, names, now=None):
                 daysInactive=days, bucket=f"{bucket}+" if days is not None else "never",
             ))
 
+    # --- next renewal per SKU (seat reductions on annual terms happen at renewal) ---
+    next_renewal = {}
+    for sub in data.get("subscriptions") or []:
+        when = _parse_dt(sub.get("nextLifecycleDateTime"))
+        part = sub.get("skuPartNumber")
+        if when and when > now and (part not in next_renewal or when < next_renewal[part]):
+            next_renewal[part] = when
+
     # --- per-SKU rollup ---
     sku_rows = []
     for s in skus:
@@ -192,7 +203,7 @@ def analyze(data, prices, names, now=None):
         sku_rows.append({
             "vendor": "Microsoft",
             "sku": part,
-            "name": names.get(part, part),
+            "name": display_name(part),
             "purchased": purchased,
             "assigned": assigned,
             "unassigned": unassigned,
@@ -209,6 +220,7 @@ def analyze(data, prices, names, now=None):
             ),
             "webOnly": sum(1 for f in findings["webOnlyDesktopSuite"] if part in f["skus"])
             if part in DESKTOP_SUITES else 0,
+            "renewalDate": next_renewal[part].date().isoformat() if part in next_renewal else None,
         })
     sku_rows.sort(key=lambda r: r["monthlyCost"] or 0, reverse=True)
 
@@ -222,7 +234,7 @@ def analyze(data, prices, names, now=None):
         if days <= RENEWAL_WINDOW_DAYS or sub.get("isTrial"):
             renewals.append({
                 "sku": sub.get("skuPartNumber"),
-                "name": names.get(sub.get("skuPartNumber"), sub.get("skuPartNumber")),
+                "name": display_name(sub.get("skuPartNumber")),
                 "status": sub.get("status"),
                 "isTrial": sub.get("isTrial"),
                 "totalLicenses": sub.get("totalLicenses"),

@@ -75,12 +75,13 @@ button { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); b
 button.on { border-color: var(--accent); color: var(--accent); }
 .empty { color: var(--muted); padding: 14px; }
 .muted { color: var(--muted); }
+a { color: var(--accent); }
 </style>
 </head>
 <body>
 <main>
   <h1 id="title"></h1>
-  <div class="sub" id="subtitle"></div>
+  <div class="sub"><span id="subtitle"></span> · <a href="executive-report.html">Executive report →</a></div>
   <div class="tiles" id="tiles"></div>
   <div id="gaps"></div>
 

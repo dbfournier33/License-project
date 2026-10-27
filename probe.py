@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from licensecheck.analyze import analyze
 from licensecheck.dashboard import to_html
+from licensecheck.executive import executive_summary
 from licensecheck.render import to_markdown
 from licensecheck.skus import load_names
 
@@ -78,7 +79,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--from", dest="source", help="re-analyze a saved output directory")
     parser.add_argument("--demo", action="store_true", help="use a fake 150-person tenant")
+    parser.add_argument("--pdf", action="store_true", help="also save the executive report as PDF")
     args = parser.parse_args()
+    load_env(os.path.join(HERE, ".env"))
 
     if args.demo:
         from licensecheck.demo import demo_data
@@ -110,9 +113,24 @@ def main():
     with open(os.path.join(out_dir, "dashboard.html"), "w", encoding="utf-8") as f:
         f.write(to_html(result))
 
+    from licensecheck.report import to_report_html, write_pdf
+
+    summary = executive_summary(result, data, prices.get("monthly_per_seat"))
+    report_path = os.path.abspath(os.path.join(out_dir, "executive-report.html"))
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(to_report_html(summary, result, os.environ.get("REPORT_PREPARED_BY")))
+
     print(markdown)
     print(f"Saved raw data and reports to {out_dir}")
-    print(f"Open the dashboard: {os.path.join(out_dir, 'dashboard.html')}")
+    print(f"Executive report: {report_path}")
+    print(f"IT dashboard:     {os.path.join(out_dir, 'dashboard.html')}")
+    if args.pdf:
+        pdf_path = report_path.replace(".html", ".pdf")
+        if write_pdf(report_path, pdf_path):
+            print(f"PDF:              {pdf_path}")
+        else:
+            print("PDF needs Playwright: pip install playwright && playwright install chromium "
+                  "(or open the report in Chrome and Print > Save as PDF).")
 
 
 if __name__ == "__main__":

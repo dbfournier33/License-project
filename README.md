@@ -72,7 +72,13 @@ python probe.py
 ```
 
 Output goes to `output/<timestamp>/`:
-- `dashboard.html`: **the dashboard** — open it in any browser. Self-contained (no server,
+- `executive-report.html`: **the executive report**, two letter-size pages in plain language:
+  annual spend, cost per employee, money going to unused licenses, ranked actions with
+  savings and timing, upcoming decisions, and spend by category, department, and product.
+  Add `--pdf` to also save it as PDF (needs `pip install playwright && playwright install chromium`;
+  or open it in Chrome and Print → Save as PDF). Set `REPORT_PREPARED_BY` in `.env` to put
+  your name on it.
+- `dashboard.html`: **the IT dashboard** — open it in any browser. Self-contained (no server,
   no internet), so it can also be emailed to a client as the audit deliverable.
 - `raw.json`: everything pulled from Graph (contains user names; keep private)
 - `report.json`: the analysis (input for the dashboard later)
