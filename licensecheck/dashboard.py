@@ -60,6 +60,7 @@ tr.detail div { margin: 3px 0; } tr.detail b { color: var(--text); font-weight: 
 tr.free td { color: var(--muted); } tr.free td.flag, tr.free td.flagw { color: var(--muted); font-weight: 400; }
 td.wrap { white-space: normal; min-width: 200px; }
 .code { font-size: 11px; margin-left: 14px; }
+.src { font-size: 11px; }
 .more { margin: 10px 12px; }
 .flag { color: var(--bad); font-weight: 600; } .flagw { color: var(--warn); font-weight: 600; }
 .bar { height: 6px; background: var(--chip); border-radius: 3px; width: 90px; display: inline-block; vertical-align: middle; margin-left: 6px; }
@@ -156,7 +157,7 @@ function drawSkus() {
         <td class="num">${free ? "free" : num(r.purchased)}</td>
         <td class="num">${num(r.assigned)}${free ? "" : `<span class="bar"><i style="width:${pct}%"></i></span>`}</td>
         <td class="num ${r.unassigned && !free ? "flagw" : ""}">${free ? "—" : num(r.unassigned)}</td>
-        <td class="num">${money(r.unitPrice)}</td>
+        <td class="num">${money(r.unitPrice)}${r.priceSource ? `<br><span class="muted src">${esc(r.priceSource)}</span>` : ""}</td>
         <td class="num">${money(r.monthlyCost)}</td>
         <td class="num ${r.onDisabledAccounts ? "flag" : ""}">${num(r.onDisabledAccounts)}</td>
         <td class="num ${r.inactive90Plus ? "flagw" : ""}">${num(r.inactive90Plus)}</td>

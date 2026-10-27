@@ -34,17 +34,20 @@ def load_env(path):
 
 
 def load_prices():
-    for name in ("prices.json", "prices.example.json"):
-        path = os.path.join(HERE, name)
-        if os.path.exists(path):
-            with open(path) as f:
-                return json.load(f), name
-    return {}, None
+    """List prices from prices.example.json, plus your overrides from prices.json."""
+    with open(os.path.join(HERE, "prices.example.json")) as f:
+        prices = json.load(f)
+    override_path = os.path.join(HERE, "prices.json")
+    if os.path.exists(override_path):
+        with open(override_path) as f:
+            prices["overrides"] = json.load(f).get("monthly_per_seat", {})
+    return prices
 
 
 def pull():
+    from licensecheck.billing import collect_billing
     from licensecheck.collect import collect
-    from licensecheck.graph import GraphClient
+    from licensecheck.graph import ARM, ARM_SCOPE, GraphClient
 
     load_env(os.path.join(HERE, ".env"))
     missing = [k for k in ("TENANT_ID", "CLIENT_ID") if not os.environ.get(k)]
@@ -59,14 +62,16 @@ def pull():
                 f"Certificate not found: {cert_path}\n"
                 "Set CERT_PATH in .env to the combined key+cert PEM, e.g. ./certs/license-probe.pem"
             )
-    client = GraphClient(
-        os.environ["TENANT_ID"],
-        os.environ["CLIENT_ID"],
-        cert_path=cert_path,
-        client_secret=os.environ.get("CLIENT_SECRET"),
+    creds = dict(cert_path=cert_path, client_secret=os.environ.get("CLIENT_SECRET"))
+    graph = GraphClient(os.environ["TENANT_ID"], os.environ["CLIENT_ID"], **creds)
+    arm = GraphClient(
+        os.environ["TENANT_ID"], os.environ["CLIENT_ID"], base=ARM, scope=ARM_SCOPE, **creds
     )
     print("Pulling from Microsoft Graph (read-only)...")
-    return collect(client)
+    data = collect(graph)
+    print("Pulling billing (read-only)...")
+    data["billing"] = collect_billing(arm)
+    return data
 
 
 def main():
@@ -93,9 +98,7 @@ def main():
         with open(os.path.join(out_dir, "raw.json"), "w") as f:
             json.dump(data, f, indent=2, default=str)
 
-    prices, price_file = load_prices()
-    if price_file == "prices.example.json":
-        print("Using example list prices — copy to prices.json and enter your real prices.")
+    prices = load_prices()
     names = load_names(os.path.join(HERE, "data", "sku_names.csv"))
 
     result = analyze(data, prices, names)

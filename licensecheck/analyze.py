@@ -6,6 +6,7 @@ Pure functions only: no network, so this can be tested against fixtures.
 import re
 from datetime import datetime, timezone
 
+from .billing import invoice_prices
 from .skus import BASE_SUITES, DESKTOP_SUITES
 
 INACTIVE_BUCKETS = (90, 60, 30)
@@ -61,15 +62,28 @@ def _reports_concealed(reports):
 def analyze(data, prices, names, now=None):
     now = now or datetime.now(timezone.utc)
     currency = prices.get("currency", "USD")
-    price_table = prices.get("monthly_per_seat", {})
+    list_prices = prices.get("monthly_per_seat", {})
+    overrides = prices.get("overrides", {})
     skus = data.get("subscribedSkus") or []
     users = data.get("users") or []
     reports = data.get("reports") or {}
 
     sku_part = {s["skuId"]: s["skuPartNumber"] for s in skus}
 
+    billed, unmatched_billing = invoice_prices(data.get("billing"), data.get("subscriptions"))
+
+    def price_info(part):
+        """Your override, else what the invoice says, else list price."""
+        if part in overrides:
+            return overrides[part], "override"
+        if part in billed:
+            return billed[part]["price"], "invoice"
+        if part in list_prices:
+            return list_prices[part], "list"
+        return None, None
+
     def price(part):
-        return price_table.get(part)
+        return price_info(part)[0]
 
     def user_skus(user):
         return [sku_part.get(l["skuId"], l["skuId"]) for l in user.get("assignedLicenses") or []]
@@ -172,7 +186,7 @@ def analyze(data, prices, names, now=None):
         part = s["skuPartNumber"]
         purchased = (s.get("prepaidUnits") or {}).get("enabled", 0)
         assigned = s.get("consumedUnits", 0)
-        unit = price(part)
+        unit, source = price_info(part)
         unassigned = max(purchased - assigned, 0)
         holders = [f for f in findings["disabledLicensed"] if part in f["skus"]]
         sku_rows.append({
@@ -185,6 +199,7 @@ def analyze(data, prices, names, now=None):
             "suspended": (s.get("prepaidUnits") or {}).get("suspended", 0),
             "warning": (s.get("prepaidUnits") or {}).get("warning", 0),
             "unitPrice": unit,
+            "priceSource": source,
             "monthlyCost": round(purchased * unit, 2) if unit is not None else None,
             "unassignedMonthlyCost": round(unassigned * unit, 2) if unit is not None else None,
             "onDisabledAccounts": len(holders),
@@ -234,6 +249,11 @@ def analyze(data, prices, names, now=None):
             "Usage reports are anonymized, so usage can't be matched to users. Turn off "
             "'Display concealed user, group, and site names' in Admin center > Settings > "
             "Org settings > Reports."
+        )
+    gaps += (data.get("billing") or {}).get("warnings", [])
+    if unmatched_billing:
+        gaps.append(
+            "Billing subscriptions not matched to a license: " + ", ".join(unmatched_billing)
         )
     unpriced = [r["sku"] for r in sku_rows if r["unitPrice"] is None and r["assigned"]]
     if unpriced:

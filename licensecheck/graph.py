@@ -1,4 +1,5 @@
-"""Minimal Microsoft Graph client: app-only auth, paging, throttling, CSV reports."""
+"""Minimal Microsoft API client (Graph or Azure Resource Manager): app-only auth, paging,
+throttling, CSV reports."""
 
 import csv
 import io
@@ -9,6 +10,8 @@ import requests
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 SCOPE = ["https://graph.microsoft.com/.default"]
+ARM = "https://management.azure.com"
+ARM_SCOPE = ["https://management.azure.com/.default"]
 MAX_RETRIES = 5
 
 
@@ -35,7 +38,8 @@ def load_certificate(pem_path):
 
 
 class GraphClient:
-    def __init__(self, tenant_id, client_id, *, cert_path=None, client_secret=None):
+    def __init__(self, tenant_id, client_id, *, cert_path=None, client_secret=None,
+                 base=GRAPH, scope=SCOPE):
         if cert_path:
             credential = load_certificate(cert_path)
         elif client_secret:
@@ -51,9 +55,11 @@ class GraphClient:
         except ValueError as e:
             raise RuntimeError(f"Could not reach tenant '{tenant_id}' — check TENANT_ID. ({e})")
         self._session = requests.Session()
+        self._base = base
+        self._scope = scope
 
     def _token(self):
-        result = self._app.acquire_token_for_client(scopes=SCOPE)
+        result = self._app.acquire_token_for_client(scopes=self._scope)
         if "access_token" not in result:
             raise RuntimeError(
                 f"Auth failed: {result.get('error')}: {result.get('error_description')}"
@@ -80,26 +86,26 @@ class GraphClient:
                     resp.status_code,
                     err.get("code", ""),
                     err.get("message", resp.text[:200]),
-                    url.replace(GRAPH, ""),
+                    url.replace(self._base, ""),
                 )
             return resp
-        raise GraphError(429, "Throttled", "gave up after retries", url.replace(GRAPH, ""))
+        raise GraphError(429, "Throttled", "gave up after retries", url.replace(self._base, ""))
 
     def get(self, path, params=None):
-        return self._request(GRAPH + path, params).json()
+        return self._request(self._base + path, params).json()
 
     def get_all(self, path, params=None):
-        """GET a collection, following @odata.nextLink."""
+        """GET a collection, following @odata.nextLink (Graph) or nextLink (ARM)."""
         items = []
         data = self.get(path, params)
         items.extend(data.get("value", []))
-        while data.get("@odata.nextLink"):
-            data = self._request(data["@odata.nextLink"]).json()
+        while data.get("@odata.nextLink") or data.get("nextLink"):
+            data = self._request(data.get("@odata.nextLink") or data["nextLink"]).json()
             items.extend(data.get("value", []))
         return items
 
     def get_report_csv(self, path):
         """Usage reports return CSV (via a redirect to a download URL)."""
-        resp = self._request(GRAPH + path)
+        resp = self._request(self._base + path)
         text = resp.content.decode("utf-8-sig")
         return list(csv.DictReader(io.StringIO(text)))
