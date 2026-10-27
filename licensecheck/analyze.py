@@ -217,7 +217,8 @@ def analyze(data, prices, names, now=None):
 
     # --- totals ---
     priced = [r for r in sku_rows if r["monthlyCost"] is not None]
-    paid = [r for r in priced if r["unitPrice"] > 0]  # free SKUs ship with 10,000 "seats"
+    # Free SKUs ship with 10,000 "seats"; unpriced SKUs still count until a price is set.
+    paid = [r for r in sku_rows if r["unitPrice"] != 0]
     monthly = round(sum(r["monthlyCost"] for r in priced), 2)
     unassigned_waste = round(sum(r["unassignedMonthlyCost"] for r in priced), 2)
     at_risk = round(sum(

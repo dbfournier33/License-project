@@ -133,3 +133,9 @@ def test_graph_timestamps_with_long_fractions_parse():
 
     for value in ("2026-10-20T12:34:56Z", "2026-10-20T12:34:56.1234567Z", "2026-10-20T12:34:56.123Z"):
         assert _parse_dt(value).date().isoformat() == "2026-10-20", value
+
+
+def test_unpriced_skus_still_count_as_seats():
+    r = analyze(fixture(), {"currency": "USD", "monthly_per_seat": {"FLOW_FREE": 0}}, NAMES, now=NOW)
+    assert (r["totals"]["seatsPurchased"], r["totals"]["seatsAssigned"]) == (11, 7)
+    assert r["totals"]["monthlySpend"] == 0
