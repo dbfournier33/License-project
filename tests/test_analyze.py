@@ -126,3 +126,10 @@ def test_no_activity_source_skips_inactivity():
 def test_markdown_renders():
     md = to_markdown(analyze(fixture(), PRICES, NAMES, now=NOW))
     assert "Confirmed waste" in md and "Microsoft 365 E3" in md
+
+
+def test_graph_timestamps_with_long_fractions_parse():
+    from licensecheck.analyze import _parse_dt
+
+    for value in ("2026-10-20T12:34:56Z", "2026-10-20T12:34:56.1234567Z", "2026-10-20T12:34:56.123Z"):
+        assert _parse_dt(value).date().isoformat() == "2026-10-20", value

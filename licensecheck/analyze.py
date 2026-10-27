@@ -3,6 +3,7 @@
 Pure functions only: no network, so this can be tested against fixtures.
 """
 
+import re
 from datetime import datetime, timezone
 
 from .skus import BASE_SUITES, DESKTOP_SUITES
@@ -18,7 +19,9 @@ def _parse_dt(value):
     try:
         if len(value) == 10:  # report dates: YYYY-MM-DD
             return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # Graph can send 7-digit fractions; Python < 3.11 only parses up to 6.
+        value = re.sub(r"(\.\d{6})\d+", r"\1", value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
 

@@ -50,10 +50,19 @@ def pull():
     missing = [k for k in ("TENANT_ID", "CLIENT_ID") if not os.environ.get(k)]
     if missing:
         sys.exit(f"Missing {', '.join(missing)} — copy .env.example to .env and fill it in.")
+    cert_path = os.environ.get("CERT_PATH")
+    if cert_path:
+        # Relative paths are relative to this project, not wherever you ran from.
+        cert_path = os.path.join(HERE, os.path.expanduser(cert_path))
+        if not os.path.exists(cert_path):
+            sys.exit(
+                f"Certificate not found: {cert_path}\n"
+                "Set CERT_PATH in .env to the combined key+cert PEM, e.g. ./certs/license-probe.pem"
+            )
     client = GraphClient(
         os.environ["TENANT_ID"],
         os.environ["CLIENT_ID"],
-        cert_path=os.environ.get("CERT_PATH"),
+        cert_path=cert_path,
         client_secret=os.environ.get("CLIENT_SECRET"),
     )
     print("Pulling from Microsoft Graph (read-only)...")
