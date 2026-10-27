@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Phase 1 probe: pull M365 license data read-only, save it, and summarize spend and waste.
+
+Usage:
+    python probe.py                     # pull from the tenant in .env, analyze, write output/
+    python probe.py --from output/X     # re-analyze a saved raw.json (e.g. after editing prices)
+"""
+
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+from licensecheck.analyze import analyze
+from licensecheck.render import to_markdown
+from licensecheck.skus import load_names
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_env(path):
+    """Tiny .env reader so we don't need another dependency."""
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"'))
+
+
+def load_prices():
+    for name in ("prices.json", "prices.example.json"):
+        path = os.path.join(HERE, name)
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f), name
+    return {}, None
+
+
+def pull():
+    from licensecheck.collect import collect
+    from licensecheck.graph import GraphClient
+
+    load_env(os.path.join(HERE, ".env"))
+    missing = [k for k in ("TENANT_ID", "CLIENT_ID") if not os.environ.get(k)]
+    if missing:
+        sys.exit(f"Missing {', '.join(missing)} — copy .env.example to .env and fill it in.")
+    client = GraphClient(
+        os.environ["TENANT_ID"],
+        os.environ["CLIENT_ID"],
+        cert_path=os.environ.get("CERT_PATH"),
+        client_secret=os.environ.get("CLIENT_SECRET"),
+    )
+    print("Pulling from Microsoft Graph (read-only)...")
+    return collect(client)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--from", dest="source", help="re-analyze a saved output directory")
+    args = parser.parse_args()
+
+    if args.source:
+        out_dir = args.source
+        with open(os.path.join(out_dir, "raw.json")) as f:
+            data = json.load(f)
+    else:
+        data = pull()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        out_dir = os.path.join(HERE, "output", stamp)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "raw.json"), "w") as f:
+            json.dump(data, f, indent=2, default=str)
+
+    prices, price_file = load_prices()
+    if price_file == "prices.example.json":
+        print("Using example list prices — copy to prices.json and enter your real prices.")
+    names = load_names(os.path.join(HERE, "data", "sku_names.csv"))
+
+    result = analyze(data, prices, names)
+    markdown = to_markdown(result)
+    with open(os.path.join(out_dir, "report.json"), "w") as f:
+        json.dump(result, f, indent=2)
+    with open(os.path.join(out_dir, "report.md"), "w") as f:
+        f.write(markdown)
+
+    print(markdown)
+    print(f"Saved raw data and reports to {out_dir}")
+
+
+if __name__ == "__main__":
+    main()

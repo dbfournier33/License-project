@@ -1,0 +1,9 @@
+.env
+certs/
+output/
+data/
+prices.json
+__pycache__/
+.venv/
+venv/
+.pytest_cache/
