@@ -38,9 +38,10 @@ def to_markdown(result, max_rows=25):
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in result["skus"]:
+        source = f" ({r['priceSource']})" if r.get("priceSource") else ""
         out.append(
             f"| {r['name']} | {r['purchased']} | {r['assigned']} | {r['unassigned']} | "
-            f"{_money(r['unitPrice'], cur)} | {_money(r['monthlyCost'], cur)} | "
+            f"{_money(r['unitPrice'], cur)}{source} | {_money(r['monthlyCost'], cur)} | "
             f"{r['onDisabledAccounts']} | {r['inactive90Plus']} | {r['webOnly']} |"
         )
 

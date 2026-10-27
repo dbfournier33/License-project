@@ -35,6 +35,8 @@ FALLBACK_NAMES = {
     "AAD_PREMIUM": "Microsoft Entra ID P1",
     "AAD_PREMIUM_P2": "Microsoft Entra ID P2",
     "Microsoft_365_Copilot": "Microsoft 365 Copilot",
+    "MDE_SMB": "Microsoft Defender for Business",
+    "BUSINESS_STANDARD_AND_COPILOT_FOR_BUSINESS": "Microsoft 365 Business Standard + Copilot Business",
 }
 
 # Base productivity suites: one user normally needs only one of these.

@@ -3,13 +3,16 @@
 Pure functions only: no network, so this can be tested against fixtures.
 """
 
+import re
 from datetime import datetime, timezone
 
-from .skus import BASE_SUITES, DESKTOP_SUITES
+from .billing import invoice_prices
+from .skus import BASE_SUITES, DESKTOP_SUITES, FALLBACK_NAMES
 
 INACTIVE_BUCKETS = (90, 60, 30)
 NEW_USER_GRACE_DAYS = 30
 RENEWAL_WINDOW_DAYS = 90
+FREE_SKU_SEATS = 10000
 
 
 def _parse_dt(value):
@@ -18,7 +21,9 @@ def _parse_dt(value):
     try:
         if len(value) == 10:  # report dates: YYYY-MM-DD
             return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # Graph can send 7-digit fractions; Python < 3.11 only parses up to 6.
+        value = re.sub(r"(\.\d{6})\d+", r"\1", value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
 
@@ -57,15 +62,31 @@ def _reports_concealed(reports):
 def analyze(data, prices, names, now=None):
     now = now or datetime.now(timezone.utc)
     currency = prices.get("currency", "USD")
-    price_table = prices.get("monthly_per_seat", {})
+    list_prices = prices.get("monthly_per_seat", {})
+    overrides = prices.get("overrides", {})
     skus = data.get("subscribedSkus") or []
     users = data.get("users") or []
     reports = data.get("reports") or {}
 
     sku_part = {s["skuId"]: s["skuPartNumber"] for s in skus}
 
+    billed, unmatched_billing = invoice_prices(data.get("billing"), data.get("subscriptions"))
+
+    def price_info(part):
+        """Your override, else what the invoice says, else list price."""
+        if part in overrides:
+            return overrides[part], "override"
+        if part in billed:
+            return billed[part]["price"], "invoice"
+        if part in list_prices:
+            return list_prices[part], "list"
+        return None, None
+
     def price(part):
-        return price_table.get(part)
+        return price_info(part)[0]
+
+    def display_name(part):
+        return names.get(part) or FALLBACK_NAMES.get(part) or part
 
     def user_skus(user):
         return [sku_part.get(l["skuId"], l["skuId"]) for l in user.get("assignedLicenses") or []]
@@ -162,24 +183,34 @@ def analyze(data, prices, names, now=None):
                 daysInactive=days, bucket=f"{bucket}+" if days is not None else "never",
             ))
 
+    # --- next renewal per SKU (seat reductions on annual terms happen at renewal) ---
+    next_renewal = {}
+    for sub in data.get("subscriptions") or []:
+        when = _parse_dt(sub.get("nextLifecycleDateTime"))
+        part = sub.get("skuPartNumber")
+        if when and when > now and (part not in next_renewal or when < next_renewal[part]):
+            next_renewal[part] = when
+
     # --- per-SKU rollup ---
     sku_rows = []
     for s in skus:
         part = s["skuPartNumber"]
         purchased = (s.get("prepaidUnits") or {}).get("enabled", 0)
         assigned = s.get("consumedUnits", 0)
-        unit = price(part)
+        unit, source = price_info(part)
         unassigned = max(purchased - assigned, 0)
         holders = [f for f in findings["disabledLicensed"] if part in f["skus"]]
         sku_rows.append({
+            "vendor": "Microsoft",
             "sku": part,
-            "name": names.get(part, part),
+            "name": display_name(part),
             "purchased": purchased,
             "assigned": assigned,
             "unassigned": unassigned,
             "suspended": (s.get("prepaidUnits") or {}).get("suspended", 0),
             "warning": (s.get("prepaidUnits") or {}).get("warning", 0),
             "unitPrice": unit,
+            "priceSource": source,
             "monthlyCost": round(purchased * unit, 2) if unit is not None else None,
             "unassignedMonthlyCost": round(unassigned * unit, 2) if unit is not None else None,
             "onDisabledAccounts": len(holders),
@@ -187,7 +218,9 @@ def analyze(data, prices, names, now=None):
                 1 for f in findings["inactive"]
                 if part in f["skus"] and f["bucket"] in ("90+", "never")
             ),
-            "webOnly": sum(1 for f in findings["webOnlyDesktopSuite"] if part in f["skus"]),
+            "webOnly": sum(1 for f in findings["webOnlyDesktopSuite"] if part in f["skus"])
+            if part in DESKTOP_SUITES else 0,
+            "renewalDate": next_renewal[part].date().isoformat() if part in next_renewal else None,
         })
     sku_rows.sort(key=lambda r: r["monthlyCost"] or 0, reverse=True)
 
@@ -201,7 +234,7 @@ def analyze(data, prices, names, now=None):
         if days <= RENEWAL_WINDOW_DAYS or sub.get("isTrial"):
             renewals.append({
                 "sku": sub.get("skuPartNumber"),
-                "name": names.get(sub.get("skuPartNumber"), sub.get("skuPartNumber")),
+                "name": display_name(sub.get("skuPartNumber")),
                 "status": sub.get("status"),
                 "isTrial": sub.get("isTrial"),
                 "totalLicenses": sub.get("totalLicenses"),
@@ -212,7 +245,8 @@ def analyze(data, prices, names, now=None):
 
     # --- totals ---
     priced = [r for r in sku_rows if r["monthlyCost"] is not None]
-    paid = [r for r in priced if r["unitPrice"] > 0]  # free SKUs ship with 10,000 "seats"
+    # Free/viral SKUs show up with 10,000+ "seats"; unpriced paid SKUs still count.
+    paid = [r for r in sku_rows if r["unitPrice"] != 0 and r["purchased"] < FREE_SKU_SEATS]
     monthly = round(sum(r["monthlyCost"] for r in priced), 2)
     unassigned_waste = round(sum(r["unassignedMonthlyCost"] for r in priced), 2)
     at_risk = round(sum(
@@ -227,6 +261,11 @@ def analyze(data, prices, names, now=None):
             "Usage reports are anonymized, so usage can't be matched to users. Turn off "
             "'Display concealed user, group, and site names' in Admin center > Settings > "
             "Org settings > Reports."
+        )
+    gaps += (data.get("billing") or {}).get("warnings", [])
+    if unmatched_billing:
+        gaps.append(
+            "Billing subscriptions not matched to a license: " + ", ".join(unmatched_billing)
         )
     unpriced = [r["sku"] for r in sku_rows if r["unitPrice"] is None and r["assigned"]]
     if unpriced:

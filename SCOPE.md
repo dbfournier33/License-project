@@ -69,9 +69,9 @@ cut before the next renewal."**
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| 1. Probe | Read-only script: pull every M365 endpoint, save raw JSON, print a waste summary | **In progress** |
+| 1. Probe | Read-only script: pull every M365 endpoint, save raw JSON, print a waste summary | Built; awaiting first real-tenant run |
 | 2. Engine | Normalize into SQLite; join users ↔ licenses ↔ usage ↔ prices | Next |
-| 3. Dashboard | Web dashboard with the hierarchy, user drill-down, CSV export | |
+| 3. Dashboard | Web dashboard with the hierarchy, user drill-down, CSV export | **v1 built** (static HTML + demo mode) |
 | 4. Connectors | Adobe, Zoom, Autodesk, same pattern | |
 | 5. Add-ons | Helpdesk plugin (license availability in the ticket), renewal calendar, HR reconciliation (UKG/ADP/Workday or CSV) | |
 

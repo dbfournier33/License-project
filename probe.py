@@ -4,6 +4,7 @@
 Usage:
     python probe.py                     # pull from the tenant in .env, analyze, write output/
     python probe.py --from output/X     # re-analyze a saved raw.json (e.g. after editing prices)
+    python probe.py --demo              # fake tenant, for demos (writes output/demo/)
 """
 
 import argparse
@@ -13,6 +14,8 @@ import sys
 from datetime import datetime, timezone
 
 from licensecheck.analyze import analyze
+from licensecheck.dashboard import to_html
+from licensecheck.executive import executive_summary
 from licensecheck.render import to_markdown
 from licensecheck.skus import load_names
 
@@ -32,38 +35,61 @@ def load_env(path):
 
 
 def load_prices():
-    for name in ("prices.json", "prices.example.json"):
-        path = os.path.join(HERE, name)
-        if os.path.exists(path):
-            with open(path) as f:
-                return json.load(f), name
-    return {}, None
+    """List prices from prices.example.json, plus your overrides from prices.json."""
+    with open(os.path.join(HERE, "prices.example.json")) as f:
+        prices = json.load(f)
+    override_path = os.path.join(HERE, "prices.json")
+    if os.path.exists(override_path):
+        with open(override_path) as f:
+            prices["overrides"] = json.load(f).get("monthly_per_seat", {})
+    return prices
 
 
 def pull():
+    from licensecheck.billing import collect_billing
     from licensecheck.collect import collect
-    from licensecheck.graph import GraphClient
+    from licensecheck.graph import ARM, ARM_SCOPE, GraphClient
 
     load_env(os.path.join(HERE, ".env"))
     missing = [k for k in ("TENANT_ID", "CLIENT_ID") if not os.environ.get(k)]
     if missing:
         sys.exit(f"Missing {', '.join(missing)} — copy .env.example to .env and fill it in.")
-    client = GraphClient(
-        os.environ["TENANT_ID"],
-        os.environ["CLIENT_ID"],
-        cert_path=os.environ.get("CERT_PATH"),
-        client_secret=os.environ.get("CLIENT_SECRET"),
+    cert_path = os.environ.get("CERT_PATH")
+    if cert_path:
+        # Relative paths are relative to this project, not wherever you ran from.
+        cert_path = os.path.join(HERE, os.path.expanduser(cert_path))
+        if not os.path.exists(cert_path):
+            sys.exit(
+                f"Certificate not found: {cert_path}\n"
+                "Set CERT_PATH in .env to the combined key+cert PEM, e.g. ./certs/license-probe.pem"
+            )
+    creds = dict(cert_path=cert_path, client_secret=os.environ.get("CLIENT_SECRET"))
+    graph = GraphClient(os.environ["TENANT_ID"], os.environ["CLIENT_ID"], **creds)
+    arm = GraphClient(
+        os.environ["TENANT_ID"], os.environ["CLIENT_ID"], base=ARM, scope=ARM_SCOPE, **creds
     )
     print("Pulling from Microsoft Graph (read-only)...")
-    return collect(client)
+    data = collect(graph)
+    print("Pulling billing (read-only)...")
+    data["billing"] = collect_billing(arm)
+    return data
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--from", dest="source", help="re-analyze a saved output directory")
+    parser.add_argument("--demo", action="store_true", help="use a fake 150-person tenant")
+    parser.add_argument("--pdf", action="store_true", help="also save the executive report as PDF")
     args = parser.parse_args()
+    load_env(os.path.join(HERE, ".env"))
 
-    if args.source:
+    if args.demo:
+        from licensecheck.demo import demo_data
+
+        data = demo_data()
+        out_dir = os.path.join(HERE, "output", "demo")
+        os.makedirs(out_dir, exist_ok=True)
+    elif args.source:
         out_dir = args.source
         with open(os.path.join(out_dir, "raw.json")) as f:
             data = json.load(f)
@@ -75,9 +101,7 @@ def main():
         with open(os.path.join(out_dir, "raw.json"), "w") as f:
             json.dump(data, f, indent=2, default=str)
 
-    prices, price_file = load_prices()
-    if price_file == "prices.example.json":
-        print("Using example list prices — copy to prices.json and enter your real prices.")
+    prices = load_prices()
     names = load_names(os.path.join(HERE, "data", "sku_names.csv"))
 
     result = analyze(data, prices, names)
@@ -86,9 +110,27 @@ def main():
         json.dump(result, f, indent=2)
     with open(os.path.join(out_dir, "report.md"), "w") as f:
         f.write(markdown)
+    with open(os.path.join(out_dir, "dashboard.html"), "w", encoding="utf-8") as f:
+        f.write(to_html(result))
+
+    from licensecheck.report import to_report_html, write_pdf
+
+    summary = executive_summary(result, data, prices.get("monthly_per_seat"))
+    report_path = os.path.abspath(os.path.join(out_dir, "executive-report.html"))
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(to_report_html(summary, result, os.environ.get("REPORT_PREPARED_BY")))
 
     print(markdown)
     print(f"Saved raw data and reports to {out_dir}")
+    print(f"Executive report: {report_path}")
+    print(f"IT dashboard:     {os.path.join(out_dir, 'dashboard.html')}")
+    if args.pdf:
+        pdf_path = report_path.replace(".html", ".pdf")
+        if write_pdf(report_path, pdf_path):
+            print(f"PDF:              {pdf_path}")
+        else:
+            print("PDF needs Playwright: pip install playwright && playwright install chromium "
+                  "(or open the report in Chrome and Print > Save as PDF).")
 
 
 if __name__ == "__main__":
