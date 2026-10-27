@@ -172,6 +172,7 @@ def analyze(data, prices, names, now=None):
         unassigned = max(purchased - assigned, 0)
         holders = [f for f in findings["disabledLicensed"] if part in f["skus"]]
         sku_rows.append({
+            "vendor": "Microsoft",
             "sku": part,
             "name": names.get(part, part),
             "purchased": purchased,
@@ -187,7 +188,8 @@ def analyze(data, prices, names, now=None):
                 1 for f in findings["inactive"]
                 if part in f["skus"] and f["bucket"] in ("90+", "never")
             ),
-            "webOnly": sum(1 for f in findings["webOnlyDesktopSuite"] if part in f["skus"]),
+            "webOnly": sum(1 for f in findings["webOnlyDesktopSuite"] if part in f["skus"])
+            if part in DESKTOP_SUITES else 0,
         })
     sku_rows.sort(key=lambda r: r["monthlyCost"] or 0, reverse=True)
 

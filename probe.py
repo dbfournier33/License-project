@@ -4,6 +4,7 @@
 Usage:
     python probe.py                     # pull from the tenant in .env, analyze, write output/
     python probe.py --from output/X     # re-analyze a saved raw.json (e.g. after editing prices)
+    python probe.py --demo              # fake tenant, for demos (writes output/demo/)
 """
 
 import argparse
@@ -13,6 +14,7 @@ import sys
 from datetime import datetime, timezone
 
 from licensecheck.analyze import analyze
+from licensecheck.dashboard import to_html
 from licensecheck.render import to_markdown
 from licensecheck.skus import load_names
 
@@ -61,9 +63,16 @@ def pull():
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--from", dest="source", help="re-analyze a saved output directory")
+    parser.add_argument("--demo", action="store_true", help="use a fake 150-person tenant")
     args = parser.parse_args()
 
-    if args.source:
+    if args.demo:
+        from licensecheck.demo import demo_data
+
+        data = demo_data()
+        out_dir = os.path.join(HERE, "output", "demo")
+        os.makedirs(out_dir, exist_ok=True)
+    elif args.source:
         out_dir = args.source
         with open(os.path.join(out_dir, "raw.json")) as f:
             data = json.load(f)
@@ -86,9 +95,12 @@ def main():
         json.dump(result, f, indent=2)
     with open(os.path.join(out_dir, "report.md"), "w") as f:
         f.write(markdown)
+    with open(os.path.join(out_dir, "dashboard.html"), "w", encoding="utf-8") as f:
+        f.write(to_html(result))
 
     print(markdown)
     print(f"Saved raw data and reports to {out_dir}")
+    print(f"Open the dashboard: {os.path.join(out_dir, 'dashboard.html')}")
 
 
 if __name__ == "__main__":

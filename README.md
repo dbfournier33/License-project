@@ -43,6 +43,8 @@ python probe.py
 ```
 
 Output goes to `output/<timestamp>/`:
+- `dashboard.html`: **the dashboard** — open it in any browser. Self-contained (no server,
+  no internet), so it can also be emailed to a client as the audit deliverable.
 - `raw.json`: everything pulled from Graph (contains user names; keep private)
 - `report.json`: the analysis (input for the dashboard later)
 - `report.md`: human-readable summary
@@ -51,6 +53,12 @@ After changing prices, re-run the analysis without calling Graph again:
 ```bash
 python probe.py --from output/<timestamp>
 ```
+
+## Demo mode
+
+`python probe.py --demo` builds the dashboard from a fake 150-person company
+(`output/demo/dashboard.html`). Use it to show prospects what they'd get without touching
+their tenant.
 
 ## What it reports
 
