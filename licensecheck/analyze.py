@@ -11,6 +11,7 @@ from .skus import BASE_SUITES, DESKTOP_SUITES
 INACTIVE_BUCKETS = (90, 60, 30)
 NEW_USER_GRACE_DAYS = 30
 RENEWAL_WINDOW_DAYS = 90
+FREE_SKU_SEATS = 10000
 
 
 def _parse_dt(value):
@@ -217,8 +218,8 @@ def analyze(data, prices, names, now=None):
 
     # --- totals ---
     priced = [r for r in sku_rows if r["monthlyCost"] is not None]
-    # Free SKUs ship with 10,000 "seats"; unpriced SKUs still count until a price is set.
-    paid = [r for r in sku_rows if r["unitPrice"] != 0]
+    # Free/viral SKUs show up with 10,000+ "seats"; unpriced paid SKUs still count.
+    paid = [r for r in sku_rows if r["unitPrice"] != 0 and r["purchased"] < FREE_SKU_SEATS]
     monthly = round(sum(r["monthlyCost"] for r in priced), 2)
     unassigned_waste = round(sum(r["unassignedMonthlyCost"] for r in priced), 2)
     at_risk = round(sum(

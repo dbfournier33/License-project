@@ -136,6 +136,6 @@ def test_graph_timestamps_with_long_fractions_parse():
 
 
 def test_unpriced_skus_still_count_as_seats():
-    r = analyze(fixture(), {"currency": "USD", "monthly_per_seat": {"FLOW_FREE": 0}}, NAMES, now=NOW)
+    r = analyze(fixture(), {"currency": "USD", "monthly_per_seat": {}}, NAMES, now=NOW)
     assert (r["totals"]["seatsPurchased"], r["totals"]["seatsAssigned"]) == (11, 7)
     assert r["totals"]["monthlySpend"] == 0
